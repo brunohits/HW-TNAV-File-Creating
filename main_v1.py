@@ -27,7 +27,7 @@ df_tp = pd.read_csv(tp_path)
 df_perf = pd.read_csv(perf_path)
 
 
-def process_welltrack(df_inclin, df_trajectory):  # Функция для обработки данных welltrack
+def generate_welltrack(df_inclin, df_trajectory):  # Функция для обработки данных welltrack
 
     merged_df = pd.concat([df_inclin, df_trajectory], axis=1)  # Объединение DataFrame'ов по столбцам
 
@@ -55,7 +55,7 @@ def process_welltrack(df_inclin, df_trajectory):  # Функция для обр
         file.write('/')  # Запись разделителя в конце файла
 
 
-def process_welspecs(tp_path):  # Функция для обработки данных welspecs
+def generate_welspecs(tp_path):  # Функция для обработки данных welspecs
 
     with open(tp_path, 'rb') as f:  # Открытие входного файла для чтения в байтовом режиме
         encoding = chardet.detect(f.read())['encoding']  # Определение кодировки файла
@@ -85,7 +85,7 @@ def process_welspecs(tp_path):  # Функция для обработки да�
         f.write(unique_data)  # Запись уникальных данных
 
 
-def process_compdatmd(perf_path):  # Функция для обработки данных compdatmd
+def generate_compdatmd(perf_path):  # Функция для обработки данных compdatmd
     with open(perf_path, 'r', newline='', encoding='utf-8') as input_file:  # Открытие входного CSV-файла для чтения
         reader = csv.reader(input_file, delimiter=',')  # Создание объекта reader для чтения CSV-файла
         next(reader, None)  # Пропуск первой строки (заголовка)
@@ -122,7 +122,10 @@ def update_tp_csv():  # Функция для обновления файла TP
     df.to_csv(output_file_path, index=False, encoding='utf-8')  # Запись DataFrame в файл
 
 
-def process_wconhist():
+def generate_wconhist():
+    locale.setlocale(locale.LC_TIME, 'ru_RU.utf-8')
+    locale.setlocale(locale.LC_TIME, 'en_EN.utf-8')
+
     update_tp_csv()
 
     with open('updatedTP.csv', 'r', newline='',
@@ -179,103 +182,98 @@ def process_wconhist():
         f.write(data)  # Запись обработанных данных
 
 
+def insert_into_sch_inc():
+    with open('Simulation_block\\Block\\Sch.inc', 'r') as inc_file:
+        lines = inc_file.readlines()
+
+    with open('output_WellTracks.txt', 'r') as welltracks:
+        welltracks_content = welltracks.readlines()
+
+    with open('output_Welspecs.txt', 'r') as welspecs:
+        welspecs_content = welspecs.readlines()
+
+    with open('output_Compdatmd.txt', 'r') as compdatmd:
+        compdatmd_content = compdatmd.readlines()
+
+
 def insert_or_replace(lines, index, content, word, nextword):
-    replaced = False
-
-    for i, line in enumerate(lines):
-        if word in line:
-            # Если слово найдено в строке, заменяем или вставляем контент
-            existed_part_start = line.find(word)
-            existed_part_end = line.find(nextword, existed_part_start)
-            existed_part = line[existed_part_start:existed_part_end]
-            lines[i] = line.replace(existed_part, content)
-            replaced = True
-
-    if not replaced:
-        # Если слово не найдено ни в одной строке, вставляем контент на указанный индекс
-        lines.insert(index, content)
+    if word in lines:
+        existed_part_start = lines.find(word)
+        existed_part_end = lines.find(nextword, existed_part_start)
+        existed_part = lines[existed_part_start:existed_part_end]
+        lines = lines.replace(existed_part, content)
+    else:
+        lines = lines[:index] + content + '\n' + lines[index:]
 
     return lines
 
 
-def merge_files():
-    with open('Simulation_block\\Block\\Sch.inc', 'r', encoding='utf-8') as inc_file:
-        lines = inc_file.readlines()
-
-    with open('output_WellTracks.txt', 'r', encoding='utf-8') as welltracks:
+def update_wconprod_in_sch_inc():
+    with open('output_WellTracks.txt', 'r') as welltracks:
         welltracks_content = welltracks.read()
 
-    with open('output_Welspecs.txt', 'r', encoding='utf-8') as welspecs:
+    with open('output_Welspecs.txt', 'r') as welspecs:
         welspecs_content = welspecs.read()
 
-    with open('output_Compdatmd.txt', 'r', encoding='utf-8') as compdatmd:
+    with open('output_Compdatmd.txt', 'r') as compdatmd:
         compdatmd_content = compdatmd.read()
 
-    # Вставка или замена контента в исходном файле
+    with open('Simulation_block\\Block\\Sch.inc', 'r') as inc_file:
+        lines = inc_file.read()
     lines = insert_or_replace(lines, 0, '\n' + compdatmd_content, "COMPDATMD", "\n/")
     lines = insert_or_replace(lines, 1, '\n' + welspecs_content, "WELSPECS", "COMPDATMD")
     lines = insert_or_replace(lines, 2, welltracks_content, "WELLTRACK", "WELSPECS")
 
-    with open('Simulation_block\\Block\\Sch.inc', 'w') as inc_file:  # Открытие исходного файла для
-        inc_file.writelines(lines)  # Запись обновленных строк в файл
+    with open('Simulation_block\\Block\\Sch.inc', 'w') as inc_file:
+        inc_file.write(lines)
+
+    with open("output_Wconhist.txt", "r") as file1:
+        data_file1 = file1.read()
+
+    sections = data_file1.split("DATES")
+
+    for section in sections:
+        if "WCONPROD" in section:
+            date_start = section.find("01 ")
+            date_end = section.find("/", date_start)
+            date = section[date_start:date_end].strip()
+
+            wconprod_from_output_start = section.find("WCONPROD")
+            wconprod_from_output_end = section.find("\n /", wconprod_from_output_start)
+            wconprod_section_output = section[wconprod_from_output_start:wconprod_from_output_end + 3]
+            schs_sections = lines.split("DATES")
+
+            if date in lines:
+                for schs_section in schs_sections:
+                    if date in schs_section:
+                        if "WCONPROD" in schs_section:
+                            wconprod_start = schs_section.find("WCONPROD")
+                            wconprod_end = schs_section.find("\n /", wconprod_start)
+                            wconprod_section = schs_section[wconprod_start:wconprod_end + 3]
+                            lines = lines.replace(wconprod_section, wconprod_section_output)
+
+                        else:
+                            date_start = lines.find(date)
+                            date_end = lines.find("/", date_start)
+                            lines = lines[:date_end + 4] + wconprod_section_output + lines[date_end + 3:]
+
+            else:
+                lines += "DATES" + section
+
+    lines = lines.strip()
+
+    with open('Simulation_block\\Block\\Sch.inc', 'w') as inc_file:
+        inc_file.writelines(lines)
 
 
-def update_wconhist():
-    with open("output_Wconhist.txt", "r") as output_file:
-        output = output_file.read()
-
-    sections = output.split("DATES")  # Разделение содержимого файла на секции по слову "DATES"
-
-    with open('Simulation_block\\Block\\Sch.inc', 'r') as inc_file:  # Открытие исходного файла для чтения
-        lines = inc_file.readlines()  # Чтение всех строк файла
-
-    for section in sections:  # Цикл по секциям
-        if "WCONPROD" in section:  # Если секция содержит "WCONPROD"
-            date_start = section.find("01 ")  # Получение индекса начала даты
-            date_end = section.find("/", date_start)  # Получение индекса конца даты
-            date = section[date_start:date_end].strip()  # Получение строки даты
-
-            wconprod_from_output_start = section.find("WCONPROD")  # Получение индекса начала "WCONPROD" в секции
-            wconprod_from_output_end = section.find("\n /",
-                                                    wconprod_from_output_start)  # Получение индекса конца "WCONPROD" в секции
-            wconprod_section_output = section[
-                                      wconprod_from_output_start:wconprod_from_output_end + 3]  # Получение строки "WCONPROD" из секции
-
-            schs_sections = ''.join(lines).split("DATES")  # Разделение исходного файла на секции по слову "DATES"
-
-            if date in ''.join(lines):  # Если дата найдена в исходном файле
-                for schs_section in schs_sections:  # Цикл по секциям исходного файла
-                    if date in schs_section:  # Если дата найдена в секции
-                        if "WCONPROD" in schs_section:  # Если секция содержит "WCONPROD"
-                            wconprod_start = schs_section.find(
-                                "WCONPROD")  # Получение индекса начала "WCONPROD" в секции
-                            wconprod_end = schs_section.find("\n /",
-                                                             wconprod_start)  # Получение индекса конца "WCONPROD" в секции
-                            wconprod_section = schs_section[
-                                               wconprod_start:wconprod_end + 3]  # Получение строки "WCONPROD" из секции
-                            lines = ''.join(lines).replace(wconprod_section,
-                                                           wconprod_section_output)  # Замена строки "WCONPROD" в исходном файле
-
-                        else:  # Если секция не содержит "WCONPROD"
-                            date_start = ''.join(lines).find(date)  # Получение индекса начала даты в исходном файле
-                            date_end = ''.join(lines).find("/",
-                                                           date_start)  # Получение индекса конца даты в исходном файле
-                            lines = ''.join(lines)[:date_end + 4] + wconprod_section_output + ''.join(lines)[
-                                                                                              date_end + 3:]  # Вставка строки "WCONPROD" в исходный файл
-            else:  # Если дата не найдена в исходном файле
-                lines += "DATES" + section  # Добавление секции в конец исходного файла
-
-    # lines = lines.strip()  # Удаление начальных и конечных пробелов из строки (Не помню зачем сделано, ломает код)
-
-    with open("Simulation_block\\Block\\Sch.inc", "w") as file2:  # Открытие исходного файла для записи
-        file2.writelines(lines)  # Запись обновленных строк в файл
-
+def run_simulation():
     subprocess.run([f'Simulation_block\\Block.bat', "632"])
 
 
-process_welltrack(df_inclin, df_trajectory)
-process_welspecs(tp_path)
-process_compdatmd(perf_path)
-process_wconhist()
-merge_files()
-update_wconhist()
+generate_welltrack(df_inclin, df_trajectory)
+generate_welspecs(tp_path)
+generate_compdatmd(perf_path)
+generate_wconhist()
+insert_into_sch_inc()
+update_wconprod_in_sch_inc()
+run_simulation()
